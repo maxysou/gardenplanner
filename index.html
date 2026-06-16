@@ -1,0 +1,1697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpacePlanner</title>
+<style>
+  :root {
+    --bg: #1a1c1a; --panel: #232622; --panel-2: #2c302b; --line: #3a3f38;
+    --grass: #2f4a2c; --grass-line: #3d5e38;
+    --ink: #e8e6df; --ink-dim: #9aa093;
+    --accent: #c7a14a; --accent-soft: #8f7a3e; --danger: #c5564b; --ok: #7fbf7a;
+    --measure: #5fb0c9;
+    --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body { font-family: var(--sans); background: var(--bg); color: var(--ink); display: flex; flex-direction: column; }
+
+  header {
+    display: flex; align-items: center; gap: 18px; padding: 10px 18px;
+    background: var(--panel); border-bottom: 1px solid var(--line); flex-shrink: 0;
+  }
+  .logo { font-family: var(--mono); font-size: 13px; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .logo span { color: var(--ink-dim); }
+  .toolbar { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+  button {
+    font-family: var(--sans); font-size: 13px; background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 13px; cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  button:hover { background: #353a32; border-color: var(--accent-soft); }
+  button.active { background: var(--accent); color: #1a1c1a; border-color: var(--accent); font-weight: 600; }
+  button.ghost { background: transparent; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .stage { flex: 1; position: relative; overflow: hidden; }
+  svg#canvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  svg#canvas.panning { cursor: grabbing; }
+  svg#canvas.drawing { cursor: crosshair; }
+
+  .hud {
+    position: absolute; left: 16px; bottom: 14px; font-family: var(--mono); font-size: 12px;
+    color: var(--ink-dim); background: rgba(26,28,26,.78); border: 1px solid var(--line);
+    padding: 6px 11px; border-radius: 7px; pointer-events: none; backdrop-filter: blur(4px);
+  }
+  .hud b { color: var(--ink); font-weight: 600; }
+  .zoomctl { position: absolute; right: 16px; bottom: 14px; display: flex; gap: 6px; }
+  .zoomctl button { width: 34px; height: 34px; padding: 0; font-size: 17px; }
+  .trademark { position: absolute; right: 16px; bottom: 56px; font-size: 9.5px; color: var(--ink-dim); opacity: .6; pointer-events: none; font-family: var(--sans); letter-spacing: .02em; max-width: 280px; text-align: right; line-height: 1.4; }
+
+  .panel {
+    position: absolute; top: 14px; left: 16px; width: 340px; max-height: calc(100% - 28px);
+    overflow-y: auto; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 11px; padding: 16px; box-shadow: 0 10px 34px rgba(0,0,0,.42);
+  }
+  .panel h2 { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; font-weight: 600; }
+
+  .outline-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+  .outline-row { display: flex; align-items: center; gap: 8px; padding: 7px 9px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
+  .outline-row.active { border-color: var(--accent); background: #34301f; }
+  .outline-row .swatch-dot { width: 11px; height: 11px; border-radius: 3px; background: var(--accent); flex: 0 0 auto; }
+  .outline-row input.ocolor { width: 22px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; flex: 0 0 auto; }
+  .outline-row input.ocolor::-webkit-color-swatch-wrapper { padding: 2px; }
+  .outline-row input.ocolor::-webkit-color-swatch { border: none; border-radius: 3px; }
+  .outline-row.unlocked-dot .swatch-dot { background: var(--ok); }
+  .outline-row input.rename { flex: 1; font-family: var(--sans); font-size: 13px; background: transparent; color: var(--ink); border: 1px solid transparent; border-radius: 5px; padding: 3px 5px; }
+  .outline-row input.rename:focus { outline: none; border-color: var(--accent); background: var(--panel); }
+  .outline-row .st { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
+  .outline-row .ib { background: transparent; border: none; padding: 3px 5px; font-size: 13px; color: var(--ink-dim); cursor: pointer; }
+  .outline-row .ib:hover { color: var(--ink); }
+  .outline-row .ib.del:hover { color: var(--danger); }
+  .panel p.hint { font-size: 12.5px; color: var(--ink-dim); line-height: 1.5; margin-bottom: 13px; }
+
+  .edge-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; margin: 11px 0; }
+  .edge-row { display: flex; align-items: center; gap: 9px; padding: 4px 6px; border-radius: 6px; }
+  .edge-row.sel { background: var(--panel-2); outline: 1px solid var(--accent-soft); }
+  .edge-row .tag { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); width: 56px; }
+  .edge-row input {
+    font-family: var(--mono); font-size: 13px; background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; width: 92px;
+  }
+  .edge-row input:focus { outline: none; border-color: var(--accent); }
+  .edge-row .u { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 1; }
+  .panel .full { width: 100%; }
+  .panel .full + .full { margin-top: 8px; }
+  .spacer { height: 9px; }
+
+  .empty-cta { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; pointer-events: none; color: var(--ink-dim); }
+  .empty-cta .big { font-size: 17px; color: var(--ink); margin-bottom: 6px; }
+  .empty-cta .small { font-size: 13px; }
+
+  .vertex { fill: var(--accent); stroke: #1a1c1a; stroke-width: 1.5; cursor: grab; }
+  .vertex:hover, .vertex.sel { fill: #e6c468; }
+  .vertex.dragging { cursor: grabbing; }
+  .edge-label { font-family: var(--mono); font-size: 11px; fill: var(--ink); paint-order: stroke; stroke: #1a1c1a; stroke-width: 3px; stroke-linejoin: round; }
+  .corner-label { font-family: var(--mono); font-size: 12px; font-weight: 700; fill: var(--accent); paint-order: stroke; stroke: #1a1c1a; stroke-width: 3.5px; stroke-linejoin: round; }
+  .outline-name { font-family: var(--sans); font-size: 13px; font-weight: 600; fill: var(--ink-dim); paint-order: stroke; stroke: #1a1c1a; stroke-width: 3.5px; stroke-linejoin: round; opacity: .65; }
+  .outline-name.act { fill: var(--accent); opacity: .85; }
+  .edge-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+
+  /* object creation form */
+  .obj-form label { display:block; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-dim); margin: 10px 0 4px; }
+  .obj-form > input[type=text] {
+    width: 100%; font-family: var(--sans); font-size: 13px; background: var(--panel-2);
+    color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px 9px;
+  }
+  .obj-form input:focus { outline: none; border-color: var(--accent); }
+  .seg { display: flex; gap: 6px; }
+  .seg button { flex: 1; padding: 7px 4px; font-size: 12px; }
+  .dims { display: flex; gap: 10px; margin-top: 8px; }
+  .dims > div { flex: 1; display: flex; align-items: center; gap: 6px; }
+  .dims label { margin: 0; flex: 0 0 auto; }
+  .dims input { width: 100%; font-family: var(--mono); font-size: 13px; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; }
+  .dims .u { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+  .swatches { display: flex; gap: 7px; margin: 12px 0; flex-wrap: wrap; }
+  .swatch { width: 26px; height: 26px; border-radius: 6px; cursor: pointer; border: 2px solid transparent; }
+  .swatch.sel { border-color: var(--ink); }
+  #createObj { margin-top: 4px; }
+
+  .obj-list { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+  .obj-item { display: flex; align-items: center; gap: 9px; padding: 7px 9px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
+  .obj-item.sel { border-color: var(--accent); }
+  .obj-item .dot { width: 13px; height: 13px; border-radius: 3px; flex: 0 0 auto; }
+  .obj-item .nm { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .obj-item .sz { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
+  .obj-item .ib { background: transparent; border: none; padding: 3px 5px; font-size: 14px; color: var(--ink-dim); }
+  .obj-item .ib:hover { color: var(--ink); }
+  .obj-item .ib.del:hover { color: var(--danger); }
+  .obj-edit { padding: 2px 6px 8px; }
+  .obj-edit .dims { margin-top: 4px; }
+  .obj-edit label { font-size: 10px; }
+  .obj-edit input[type=text] { width: 100%; font-family: var(--sans); font-size: 13px; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; }
+  .obj-edit input[type=text]:focus { outline: none; border-color: var(--accent); }
+  .obj-edit .swatches { margin: 5px 0 2px; gap: 6px; }
+  .obj-edit .swatch { width: 22px; height: 22px; }
+  .dist-info { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); margin: 9px 0 0; line-height: 1.5; }
+  .dist-info b { color: var(--ink); }
+  .obj-item .grip { cursor: grab; color: var(--ink-dim); font-size: 11px; letter-spacing: -2px; flex: 0 0 auto; user-select: none; }
+  .obj-item .ib.exp { color: var(--accent); font-size: 12px; }
+  .obj-item .ocheck { flex: 0 0 auto; cursor: pointer; accent-color: var(--accent); }
+  .obj-item .gbadge { flex: 0 0 auto; font-family: var(--mono); font-size: 9px; font-weight: 700; color: #1a1c1a; padding: 1px 4px; border-radius: 4px; }
+  .group-controls { display: flex; gap: 8px; margin-bottom: 4px; }
+  .group-controls button { flex: 1; font-size: 12px; }
+  .obj-item.drop-target { border-color: var(--accent); box-shadow: 0 -2px 0 var(--accent) inset; }
+
+  /* object selection handles */
+  .obj-shape { cursor: move; }
+  .obj-shape.locked { cursor: default; }
+  .handle { fill: var(--ink); stroke: #1a1c1a; stroke-width: 1.5; }
+  .handle.rot { fill: var(--accent); }
+  .obj-label { font-family: var(--sans); font-size: 12px; fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+  .obj-dim { font-family: var(--mono); font-size: 10px; fill: rgba(255,255,255,.85); paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 2.5px; stroke-linejoin: round; pointer-events: none; }
+  .dist-label { font-family: var(--mono); font-size: 11px; fill: #eaf6fb; paint-order: stroke; stroke: #11343d; stroke-width: 3.5px; stroke-linejoin: round; pointer-events: none; }
+  .dist-label-bg { fill: rgba(8,30,36,.82); pointer-events: none; }
+  .obj-sel-box { fill: none; stroke: var(--accent); stroke-dasharray: 4 3; }
+  .lock-badge { font-size: 11px; pointer-events: none; }
+
+  /* measure */
+  .measure-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .measure-item { display: flex; align-items: center; gap: 9px; padding: 7px 9px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; }
+  .measure-item .mc { width: 11px; height: 11px; border-radius: 50%; background: var(--measure); flex: 0 0 auto; }
+  .measure-item .md { flex: 1; font-family: var(--mono); font-size: 13px; color: var(--ink); }
+  .measure-item .ib { background: transparent; border: none; padding: 3px 5px; font-size: 14px; color: var(--ink-dim); cursor: pointer; }
+  .measure-item .ib:hover { color: var(--danger); }
+  .measure-line { stroke: var(--measure); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .measure-pt { fill: #ff3b30; stroke: #fff; stroke-width: 1.5; }
+  .measure-pt.mpt { cursor: grab; }
+  .measure-label-bg { fill: rgba(8,30,36,.82); pointer-events: none; }
+  .measure-item .md-edit { width: 74px; font-family: var(--mono); font-size: 13px; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  .measure-item .md-edit:focus { outline: none; border-color: var(--measure); }
+  .measure-item .u { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+  .measure-label { font-family: var(--mono); font-size: 11px; fill: #eaf6fb; paint-order: stroke; stroke: #11343d; stroke-width: 3.5px; stroke-linejoin: round; }
+  .snap-ring { fill: none; stroke: var(--measure); stroke-width: 2; vector-effect: non-scaling-stroke; opacity: .9; }
+  #cnvCursor { pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Space<span>Planner</span></div>
+  <div class="toolbar">
+    <button id="btnOutline" class="ghost">Edit outline</button>
+    <button id="btnObjects" class="ghost">Objects</button>
+    <button id="btnMeasure" class="ghost">Measure</button>
+    <button id="btnUndo" class="ghost" title="Undo (Ctrl+Z)">↶ Undo</button>
+    <button id="btnRedo" class="ghost" title="Redo (Ctrl+Y)">↷ Redo</button>
+    <button id="btnFit" class="ghost">Fit to view</button>
+    <button id="btnExport" class="ghost">Export</button>
+    <button id="btnImport" class="ghost">Import</button>
+    <input type="file" id="fileImport" accept="application/json,.json" style="display:none">
+  </div>
+</header>
+
+<div class="stage">
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="grass" width="40" height="40" patternUnits="userSpaceOnUse">
+        <rect width="40" height="40" fill="var(--grass)"/>
+        <path d="M0 40 L40 0 M-10 10 L10 -10 M30 50 L50 30" stroke="var(--grass-line)" stroke-width="1" opacity=".5"/>
+      </pattern>
+    </defs>
+    <g id="world">
+      <g id="layer-grid"></g>
+      <g id="layer-outline"></g>
+      <g id="layer-objects"></g>
+      <g id="layer-overlay"></g>
+    </g>
+  </svg>
+
+  <div class="empty-cta" id="emptyCta">
+    <div class="big">No garden yet</div>
+    <div class="small">Open “Edit outline”, add corners, then drag them to match your plot.</div>
+  </div>
+
+  <!-- EDIT panel -->
+  <div class="panel" id="outlinePanel" style="display:none;">
+    <h2>Outlines</h2>
+    <div class="outline-list" id="outlineList"></div>
+    <button id="addOutline" class="full ghost" style="margin-bottom:14px;">+ New outline</button>
+    <h2 id="activeOutlineHdr">Editing: Garden 1</h2>
+    <p class="hint">Add corners, then drag them on the canvas to shape this outline. Each side shows its length — type an exact value to set a side precisely.</p>
+    <div class="row">
+      <button id="addCorner" class="full">+ Add corner</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="row">
+      <button id="presetRect" class="ghost full">Start from rectangle</button>
+    </div>
+    <div class="edge-list" id="edgeList"></div>
+    <div class="row">
+      <button id="clearOutline" class="ghost">Clear all</button>
+      <button id="delCorner" class="ghost">Delete selected</button>
+    </div>
+    <div class="spacer"></div>
+    <button id="lockOutline" class="full">🔒 Lock this outline</button>
+    <p class="hint" id="closeNote" style="margin:10px 0 0;"></p>
+  </div>
+
+  <!-- LOCKED panel -->
+  <div class="panel" id="lockedPanel" style="display:none;">
+    <h2>Outlines</h2>
+    <div class="outline-list" id="outlineListLocked"></div>
+    <button id="addOutlineLocked" class="full ghost" style="margin-bottom:14px;">+ New outline</button>
+    <h2 id="lockedHdr">Garden 1</h2>
+    <p class="hint" id="lockedSummary">Outline locked.</p>
+    <button id="unlockOutline" class="full">🔓 Unlock to edit</button>
+  </div>
+
+  <!-- OBJECTS panel -->
+  <div class="panel" id="objectsPanel" style="display:none;">
+    <h2>Objects</h2>
+    <p class="hint">Create an object at real size, then drag it onto your plot. Select it to move, resize, rotate, lock or delete.</p>
+    <div class="obj-form">
+      <label>Name</label>
+      <input type="text" id="objName" placeholder="e.g. Apple tree, Patio, Shed">
+      <label>Shape</label>
+      <div class="seg" id="objShape">
+        <button data-shape="rect" class="active">Rectangle</button>
+        <button data-shape="square">Square</button>
+        <button data-shape="circle">Circle</button>
+      </div>
+      <div class="dims" id="dimsRect">
+        <div><label>Width</label><input type="number" id="objW" min="1" step="1" value="2"><span class="u">m</span></div>
+        <div><label>Length</label><input type="number" id="objL" min="1" step="1" value="3"><span class="u">m</span></div>
+      </div>
+      <div class="dims" id="dimsSquare" style="display:none;">
+        <div><label>Side</label><input type="number" id="objS" min="1" step="1" value="2"><span class="u">m</span></div>
+      </div>
+      <div class="dims" id="dimsCircle" style="display:none;">
+        <div><label>Diameter</label><input type="number" id="objD" min="1" step="1" value="2"><span class="u">m</span></div>
+      </div>
+      <div class="swatches" id="objColors"></div>
+      <button id="createObj" class="full">+ Create &amp; place</button>
+    </div>
+    <div class="group-controls" id="groupControls">
+      <button id="groupBtn" class="ghost" disabled>Group checked</button>
+      <button id="ungroupBtn" class="ghost" disabled>Ungroup</button>
+    </div>
+    <div class="obj-list" id="objList"></div>
+  </div>
+
+  <!-- MEASURE panel -->
+  <div class="panel" id="measurePanel" style="display:none;">
+    <h2>Measure</h2>
+    <p class="hint">Click <b>New measurement</b>, then click two points on the canvas. Points snap to nearby corners and object centres. Add as many as you like.</p>
+    <button id="newMeasure" class="full">+ New measurement</button>
+    <p class="hint" id="measureStatus" style="margin:10px 0 0;"></p>
+    <div class="measure-list" id="measureList"></div>
+    <div class="row" style="margin-top:10px;">
+      <button id="clearMeasures" class="ghost full">Clear all measurements</button>
+    </div>
+  </div>
+
+  <div class="hud" id="hud">Pan: drag · Zoom: scroll · <b>1 grid = 1 m</b></div>
+  <div class="zoomctl">
+    <button id="zoomOut">−</button>
+    <button id="zoomIn">+</button>
+  </div>
+  <div class="trademark">SpacePlanner™ · © MYS · All rights reserved. Trademark &amp; copyright law applies.</div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   Coordinate model: world units = centimetres (1 cm = 1 unit).
+   Outline = free polygon: an ordered list of vertices {x,y} in cm,
+   implicitly closed (last vertex connects back to first).
+   Edge i runs from verts[i] to verts[(i+1)%n].
+   ============================================================ */
+const SVG = document.getElementById('canvas');
+const WORLD = document.getElementById('world');
+const L_GRID = document.getElementById('layer-grid');
+const L_OUTLINE = document.getElementById('layer-outline');
+const L_OBJECTS = document.getElementById('layer-objects');
+
+const view = { x: 0, y: 0, scale: 0.5 }; // px per cm
+
+const SAVE_KEY = 'gardenPlanner.v2';
+const SAVE_VERSION = 4;
+
+const PALETTE = ['#6f9e5a','#c98f4e','#8a8f98','#7aa7c7','#b5694e','#9b7bb0','#c7a14a','#5fa3a0'];
+const OUTLINE_PALETTE = ['#c7a14a','#7aa7c7','#b5694e','#6f9e5a','#9b7bb0','#5fa3a0','#c98f4e','#8a8f98'];
+
+// Each outline: { id, name, verts:[{x,y}], locked:bool }
+// state.verts / state.locked are accessors that proxy to the ACTIVE outline,
+// so all existing single-outline code keeps working unchanged.
+const state = {
+  outlines: [
+    { id: 1, name: 'Garden 1', verts: [ {x:0,y:0}, {x:1000,y:0}, {x:1000,y:700}, {x:0,y:700} ], locked: false, color: '#c7a14a' },
+  ],
+  activeOutline: 0,   // index into outlines
+  objects: [],        // { id, name, shape:'rect'|'circle', w, h, x, y, rot(deg), color, locked }
+  measures: [],       // { id, a:{x,y}, b:{x,y}, locked:bool }
+  unit: 'm',
+  mode: 'idle',       // idle | outline | objects | measure
+  selVert: null,
+  selEdge: null,
+  selObj: null,
+  checkedObjs: [],   // ids checked in the list for grouping
+};
+// Active-outline proxies. Reads/writes hit whichever outline is active.
+Object.defineProperty(state, 'verts', {
+  get() { const o = state.outlines[state.activeOutline]; return o ? o.verts : []; },
+  set(v) { const o = state.outlines[state.activeOutline]; if (o) o.verts = v; },
+});
+Object.defineProperty(state, 'locked', {
+  get() { const o = state.outlines[state.activeOutline]; return o ? o.locked : false; },
+  set(v) { const o = state.outlines[state.activeOutline]; if (o) o.locked = v; },
+});
+
+let nextId = 100;
+let objEditorOpen = false; // is the selected object's inline editor expanded?
+const UNIT_TO_CM = { cm: 1, m: 100 };
+
+/* ============ Save / load (versioned, autosave) ============ */
+let saveTimer = null;
+function writeSave() {
+  try {
+    const data = {
+      version: SAVE_VERSION,
+      outlines: state.outlines, activeOutline: state.activeOutline,
+      objects: state.objects, measures: state.measures,
+      unit: state.unit, view: { ...view }, nextId,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  } catch (e) { /* storage full or blocked — export is the backup */ }
+}
+function save(immediate) {
+  clearTimeout(saveTimer);
+  if (immediate) { writeSave(); return; }
+  saveTimer = setTimeout(writeSave, 250);
+}
+
+/* ============ Undo / redo history ============ */
+const HISTORY_LIMIT = 25;
+const undoStack = [];
+const redoStack = [];
+function snapshot() {
+  return JSON.stringify({
+    outlines: state.outlines, activeOutline: state.activeOutline,
+    objects: state.objects, measures: state.measures, nextId,
+  });
+}
+// Call BEFORE a mutating action to record the state we can return to.
+function pushHistory() {
+  undoStack.push(snapshot());
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  redoStack.length = 0; // a new action invalidates the redo branch
+  updateHistoryButtons();
+}
+function applySnapshot(snap) {
+  const d = JSON.parse(snap);
+  state.outlines = d.outlines; state.activeOutline = Math.min(d.activeOutline||0, (d.outlines||[]).length-1);
+  state.objects = d.objects; state.measures = d.measures; nextId = d.nextId;
+  if (state.activeOutline < 0) state.activeOutline = 0;
+  // selections may now point at gone items
+  if (!state.objects.find(o=>o.id===state.selObj)) state.selObj = null;
+  state.selVert = null;
+}
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(snapshot());
+  applySnapshot(undoStack.pop());
+  afterHistory();
+}
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(snapshot());
+  applySnapshot(redoStack.pop());
+  afterHistory();
+}
+function afterHistory() {
+  updateHistoryButtons();
+  // re-render everything and persist
+  renderOutlineList();
+  renderOutline(); renderEdgeList(); updateCloseNote();
+  renderObjects(); renderObjList();
+  renderMeasures(); renderMeasureList();
+  if (state.locked) document.getElementById('lockedSummary').textContent = outlineSummary();
+  // keep panel visibility consistent with lock state
+  if (state.mode === 'outline') setMode('outline');
+  save(true);
+}
+function updateHistoryButtons() {
+  document.getElementById('btnUndo').disabled = undoStack.length === 0;
+  document.getElementById('btnRedo').disabled = redoStack.length === 0;
+}
+function loadFromData(d) {
+  if (!d || typeof d !== 'object') return false;
+  // Tolerant loader with migration from older single-outline saves.
+  if (Array.isArray(d.outlines)) {
+    state.outlines = d.outlines
+      .filter(o => o && Array.isArray(o.verts))
+      .map((o,i) => ({
+        id: Number.isFinite(o.id) ? o.id : (nextId++),
+        name: typeof o.name === 'string' && o.name ? o.name : `Outline ${i+1}`,
+        verts: o.verts.map(p => ({ x:+p.x||0, y:+p.y||0 })),
+        locked: !!o.locked,
+        color: typeof o.color === 'string' ? o.color : OUTLINE_PALETTE[i % OUTLINE_PALETTE.length],
+      }));
+    state.activeOutline = Number.isFinite(d.activeOutline) ? d.activeOutline : 0;
+  } else if (Array.isArray(d.verts)) {
+    // migrate v1–v3 single outline
+    state.outlines = [{ id: nextId++, name: 'Garden 1', verts: d.verts.map(p=>({x:+p.x||0,y:+p.y||0})), locked: !!d.locked, color: '#c7a14a' }];
+    state.activeOutline = 0;
+  }
+  if (!state.outlines.length) { state.outlines = [{ id: nextId++, name: 'Garden 1', verts: [], locked: false, color: '#c7a14a' }]; }
+  if (state.activeOutline < 0 || state.activeOutline >= state.outlines.length) state.activeOutline = 0;
+
+  state.objects = Array.isArray(d.objects) ? d.objects.map(normalizeObj) : [];
+  state.measures = Array.isArray(d.measures)
+    ? d.measures.filter(m => m && m.a && m.b).map(m => ({ id: Number.isFinite(m.id)?m.id:(nextId++), a:{x:+m.a.x||0,y:+m.a.y||0}, b:{x:+m.b.x||0,y:+m.b.y||0}, locked: !!m.locked }))
+    : [];
+  state.unit    = (d.unit === 'cm' || d.unit === 'm') ? d.unit : 'm';
+  if (d.view && typeof d.view.scale === 'number') { view.x=+d.view.x||0; view.y=+d.view.y||0; view.scale=d.view.scale; }
+  const maxId = Math.max(0, ...state.objects.map(o=>o.id), ...state.outlines.map(o=>o.id), ...state.measures.map(m=>m.id));
+  nextId = Number.isFinite(d.nextId) ? Math.max(d.nextId, maxId+1) : maxId+1;
+  return true;
+}
+function normalizeObj(o) {
+  return {
+    id: Number.isFinite(o.id) ? o.id : (nextId++),
+    name: typeof o.name === 'string' ? o.name : 'Object',
+    shape: (o.shape === 'circle') ? 'circle' : 'rect',
+    w: +o.w || 100, h: +o.h || 100,
+    x: +o.x || 0, y: +o.y || 0,
+    rot: +o.rot || 0,
+    color: typeof o.color === 'string' ? o.color : PALETTE[0],
+    locked: !!o.locked,
+    group: Number.isFinite(o.group) ? o.group : null,
+  };
+}
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    return loadFromData(JSON.parse(raw));
+  } catch (e) { return false; }
+}
+
+/* ============ View helpers ============ */
+function applyView() {
+  WORLD.setAttribute('transform', `translate(${view.x} ${view.y}) scale(${view.scale})`);
+  renderGrid();
+}
+function screenToWorld(sx, sy) {
+  const r = SVG.getBoundingClientRect();
+  return { x: (sx - r.left - view.x) / view.scale, y: (sy - r.top - view.y) / view.scale };
+}
+// Re-render the spatial layers after a view change (pan/zoom/fit/resize).
+function renderAll() { renderOutline(); renderObjects(); renderMeasures(); }
+
+/* ============ Grid ============ */
+function renderGrid() {
+  const r = SVG.getBoundingClientRect();
+  const tl = screenToWorld(r.left, r.top);
+  const br = screenToWorld(r.right, r.bottom);
+  let step = 100;
+  while (step * view.scale < 28) step *= 5;
+  while (step * view.scale > 180) step /= 2;
+  const x0 = Math.floor(tl.x / step) * step;
+  const y0 = Math.floor(tl.y / step) * step;
+  let d = '';
+  for (let x = x0; x <= br.x; x += step) d += `M${x} ${tl.y} L${x} ${br.y} `;
+  for (let y = y0; y <= br.y; y += step) d += `M${tl.x} ${y} L${br.x} ${y} `;
+  L_GRID.innerHTML =
+    `<path d="${d}" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke" opacity="0.5" fill="none"/>` +
+    `<path d="M${tl.x} 0 L${br.x} 0 M0 ${tl.y} L0 ${br.y}" stroke="var(--accent-soft)" stroke-width="1.2" vector-effect="non-scaling-stroke" opacity="0.6" fill="none"/>`;
+  const m = step / 100;
+  document.getElementById('hud').innerHTML =
+    `Pan: drag · Zoom: scroll · <b>1 grid = ${m >= 1 ? m + ' m' : step + ' cm'}</b>`;
+}
+
+/* ============ Formatting ============ */
+function fmtLen(cm) {
+  return cm >= 100 ? +(cm/100).toFixed(2) + ' m' : Math.round(cm) + ' cm';
+}
+function letter(i) { // 0->A, 25->Z, 26->AA ...
+  let s = ''; i = i|0;
+  do { s = String.fromCharCode(65 + (i % 26)) + s; i = Math.floor(i/26) - 1; } while (i >= 0);
+  return s;
+}
+function toUnit(cm) { return cm / UNIT_TO_CM[state.unit]; }
+function fromUnit(v) { return v * UNIT_TO_CM[state.unit]; }
+
+/* ============ Outline rendering ============ */
+// Create (once per colour) a grass-style hatch pattern tinted to that colour,
+// so each outline gets a textured fill in its own hue.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const _texturedColors = new Set();
+function ensureTexture(col) {
+  const id = 'tex_' + col.replace('#','');
+  if (_texturedColors.has(id)) return id;
+  const defs = SVG.querySelector('defs');
+  const pat = document.createElementNS(SVG_NS, 'pattern');
+  pat.setAttribute('id', id);
+  pat.setAttribute('width', '40'); pat.setAttribute('height', '40');
+  pat.setAttribute('patternUnits', 'userSpaceOnUse');
+  pat.innerHTML =
+    `<path d="M0 40 L40 0 M-10 10 L10 -10 M30 50 L50 30" stroke="${col}" stroke-width="2" opacity="0.55"/>`;
+  defs.appendChild(pat);
+  _texturedColors.add(id);
+  return id;
+}
+function renderOutline() {
+  L_OUTLINE.innerHTML = '';
+  const anyVerts = state.outlines.some(o => o.verts.length >= 2);
+  document.getElementById('emptyCta').style.display = anyVerts ? 'none' : 'block';
+  const inv = 1 / view.scale;
+
+  state.outlines.forEach((outline, oi) => {
+    const v = outline.verts;
+    if (v.length < 2) return;
+    const isActive = oi === state.activeOutline;
+    const editing = isActive && state.mode === 'outline' && !outline.locked;
+    const closed = v.length >= 3;
+    const dPoly = v.map((p,i) => `${i?'L':'M'}${p.x} ${p.y}`).join(' ') + (closed ? ' Z' : '');
+    const col = outline.color || '#c7a14a';
+
+    // outline color tints stroke + fill; active is full strength, others dimmer
+    const fillOp = isActive ? '0.30' : '0.15';
+    if (closed) {
+      const patId = ensureTexture(col);
+      // flat color tint, then a subtle textured overlay in the same hue
+      L_OUTLINE.insertAdjacentHTML('beforeend',
+        `<path d="${dPoly}" fill="${col}" fill-opacity="${fillOp}" stroke="none"/>` +
+        `<path d="${dPoly}" fill="url(#${patId})" fill-opacity="${isActive?0.5:0.3}" stroke="${col}" stroke-width="${isActive?2.5:2}" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`);
+    } else {
+      L_OUTLINE.insertAdjacentHTML('beforeend',
+        `<path d="${dPoly}" fill="none" stroke="${col}" stroke-width="2" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`);
+    }
+
+    // outline name at centroid
+    if (closed) {
+      const c = centroid(v);
+      L_OUTLINE.insertAdjacentHTML('beforeend',
+        `<g transform="translate(${c.x} ${c.y}) scale(${inv})"><text class="outline-name ${isActive?'act':''}" fill="${col}" text-anchor="middle">${escapeHtml(outline.name)}</text></g>`);
+    }
+
+    const nEdges = closed ? v.length : v.length - 1;
+    for (let i = 0; i < nEdges; i++) {
+      const a = v[i], b = v[(i+1) % v.length];
+      const cm = Math.hypot(b.x-a.x, b.y-a.y);
+      if (editing) {
+        L_OUTLINE.insertAdjacentHTML('beforeend',
+          `<line class="edge-hit" data-ei="${i}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" vector-effect="non-scaling-stroke"/>`);
+      }
+      if (cm < 1) continue;
+      // only label edges of the active outline (keeps non-active ones clean)
+      if (!isActive && !editing) continue;
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+      const nx = -(b.y-a.y)/cm, ny = (b.x-a.x)/cm;
+      const off = 16 / view.scale;
+      const lbl = editing ? `${letter(i)} · ${fmtLen(cm)}` : fmtLen(cm);
+      L_OUTLINE.insertAdjacentHTML('beforeend',
+        `<g transform="translate(${mx + nx*off} ${my + ny*off}) scale(${inv})">
+           <text class="edge-label" text-anchor="middle" dominant-baseline="middle">${lbl}</text>
+         </g>`);
+    }
+
+    if (editing) {
+      v.forEach((p,i) => {
+        L_OUTLINE.insertAdjacentHTML('beforeend',
+          `<circle class="vertex ${i===state.selVert?'sel':''}" data-vi="${i}" cx="${p.x}" cy="${p.y}" r="${8/view.scale}"/>`);
+        L_OUTLINE.insertAdjacentHTML('beforeend',
+          `<g transform="translate(${p.x} ${p.y}) scale(${inv})">
+             <text class="corner-label" x="11" y="-9">${i+1}</text>
+           </g>`);
+      });
+    }
+  });
+}
+function centroid(v) {
+  let x=0,y=0; for(const p of v){x+=p.x;y+=p.y;} return {x:x/v.length, y:y/v.length};
+}
+
+/* ============ Geometry: point-in-polygon + ray casting ============ */
+// Standard even-odd ray-casting point-in-polygon test.
+function pointInPolygon(px, py, verts) {
+  if (verts.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+    const xi = verts[i].x, yi = verts[i].y, xj = verts[j].x, yj = verts[j].y;
+    const intersect = ((yi > py) !== (yj > py)) &&
+      (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+// Which outline (index) contains this point? Returns -1 if none. If nested,
+// the smaller (last-matching) wins is overkill — first match is fine here.
+function outlineContaining(px, py) {
+  for (let i = 0; i < state.outlines.length; i++) {
+    const o = state.outlines[i];
+    if (o.verts.length >= 3 && pointInPolygon(px, py, o.verts)) return i;
+  }
+  return -1;
+}
+// Cast a ray from (px,py) in unit direction (dx,dy) and return the distance to
+// the nearest polygon edge it crosses, or null if none (shouldn't happen if
+// the point is inside a closed polygon, but we guard anyway).
+function rayToPolygon(px, py, dx, dy, verts) {
+  let best = null;
+  for (let i = 0, n = verts.length; i < n; i++) {
+    const a = verts[i], b = verts[(i + 1) % n];
+    // segment a->b ; ray P + t*D , t>=0. Solve intersection.
+    const ex = b.x - a.x, ey = b.y - a.y;
+    const denom = dx * ey - dy * ex;
+    if (Math.abs(denom) < 1e-9) continue; // parallel
+    const t = ((a.x - px) * ey - (a.y - py) * ex) / denom; // along ray
+    const u = ((a.x - px) * dy - (a.y - py) * dx) / denom; // along segment
+    if (t > 1e-6 && u >= -1e-6 && u <= 1 + 1e-6) {
+      if (best === null || t < best) best = t;
+    }
+  }
+  return best; // distance in cm (since dir is unit), or null
+}
+
+/* ============ Edge list panel ============ */
+const edgeListEl = document.getElementById('edgeList');
+function renderEdgeList() {
+  const v = state.verts;
+  edgeListEl.innerHTML = '';
+  if (v.length < 2) { edgeListEl.innerHTML = '<p class="hint" style="margin:0">No corners yet. Add at least 3.</p>'; return; }
+  const n = v.length;
+  for (let i = 0; i < n; i++) {
+    const a = v[i], b = v[(i+1)%n];
+    const cm = Math.hypot(b.x-a.x, b.y-a.y);
+    const row = document.createElement('div');
+    row.className = 'edge-row' + (i===state.selEdge ? ' sel' : '');
+    row.innerHTML =
+      `<span class="tag">Side ${letter(i)}</span>
+       <input type="number" min="0" step="0.01" value="${(+toUnit(cm).toFixed(2))}" data-ei="${i}">
+       <span class="u">${state.unit}</span>`;
+    edgeListEl.appendChild(row);
+  }
+}
+// Typing an exact length: move the edge's END vertex along the edge's current direction.
+edgeListEl.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (t.dataset.ei === undefined) return;
+  const i = +t.dataset.ei;
+  const targetCm = Math.max(0, fromUnit(parseFloat(t.value) || 0));
+  pushHistory();
+  setEdgeLength(i, targetCm);
+});
+edgeListEl.addEventListener('focusin', (ev) => {
+  if (ev.target.dataset.ei !== undefined) { state.selEdge = +ev.target.dataset.ei; highlightEdge(); }
+});
+function highlightEdge() {
+  [...edgeListEl.children].forEach((r,idx) => r.classList.toggle('sel', idx===state.selEdge));
+}
+
+function setEdgeLength(i, targetCm) {
+  const v = state.verts, n = v.length;
+  const a = v[i], b = v[(i+1)%n];
+  let dx = b.x-a.x, dy = b.y-a.y;
+  let len = Math.hypot(dx,dy);
+  if (len < 0.0001) { dx = 1; dy = 0; len = 1; } // default direction if degenerate
+  const ux = dx/len, uy = dy/len;
+  const bi = (i+1)%n;
+  v[bi] = { x: a.x + ux*targetCm, y: a.y + uy*targetCm };
+  refresh();
+}
+
+/* ============ Outline list (multiple outlines) ============ */
+function renderOutlineList() {
+  const html = state.outlines.map((o, i) => {
+    const active = i === state.activeOutline;
+    const st = o.locked ? '🔒' : '🔓';
+    const col = o.color || '#c7a14a';
+    return `<div class="outline-row ${active?'active':''}" data-oi="${i}">
+        <input type="color" class="ocolor" data-oi="${i}" value="${col}" title="Outline colour">
+        <input class="rename" data-oi="${i}" value="${escapeAttr(o.name)}">
+        <span class="st">${st}</span>
+        <button class="ib del" data-oi="${i}" data-act="delOutline" title="Delete outline">🗑</button>
+      </div>`;
+  }).join('');
+  ['outlineList','outlineListLocked'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.innerHTML = html;
+  });
+  const cur = state.outlines[state.activeOutline];
+  const hdr = document.getElementById('activeOutlineHdr'); if (hdr && cur) hdr.textContent = 'Editing: ' + cur.name;
+  const lh = document.getElementById('lockedHdr'); if (lh && cur) lh.textContent = cur.name;
+}
+function escapeAttr(s){ return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function switchOutline(i) {
+  if (i < 0 || i >= state.outlines.length) return;
+  state.activeOutline = i;
+  state.selVert = null; state.selEdge = null;
+  setMode('outline'); // re-renders panels per this outline's lock state
+}
+function addOutline() {
+  pushHistory();
+  const n = state.outlines.length + 1;
+  state.outlines.push({ id: nextId++, name: `Outline ${n}`, verts: [], locked: false, color: OUTLINE_PALETTE[(n-1) % OUTLINE_PALETTE.length] });
+  state.activeOutline = state.outlines.length - 1;
+  state.selVert = null;
+  setMode('outline');
+  save(true);
+}
+function deleteOutline(i) {
+  if (state.outlines.length <= 1) { alert('Keep at least one outline.'); return; }
+  const o = state.outlines[i];
+  if (!confirm(`Delete outline “${o.name}”? Objects inside it stay on the canvas but lose their distance lines.`)) return;
+  pushHistory();
+  state.outlines.splice(i, 1);
+  if (state.activeOutline >= state.outlines.length) state.activeOutline = state.outlines.length - 1;
+  state.selVert = null;
+  setMode('outline');
+  save(true);
+}
+function renameOutline(i, name) {
+  const o = state.outlines[i]; if (!o) return;
+  o.name = name.trim() || o.name;
+  save(true);
+}
+
+// Wire both copies of the list (edit + locked panels)
+function bindOutlineList(listId, addBtnId) {
+  const list = document.getElementById(listId);
+  if (list) {
+    list.addEventListener('click', e => {
+      const delBtn = e.target.closest('[data-act="delOutline"]');
+      if (delBtn) { deleteOutline(+delBtn.dataset.oi); return; }
+      if (e.target.classList.contains('ocolor')) return; // let the picker open
+      const row = e.target.closest('.outline-row');
+      if (!row) return;
+      const oi = +row.dataset.oi;
+      // Clicking a non-active row switches to it (even if the click landed on its
+      // name field). Clicking the already-active row's name lets you rename.
+      if (oi !== state.activeOutline) { e.preventDefault(); switchOutline(oi); }
+    });
+    list.addEventListener('input', e => {
+      if (e.target.classList.contains('ocolor')) {
+        const o = state.outlines[+e.target.dataset.oi];
+        if (o) { o.color = e.target.value; renderOutline(); save(); }
+      }
+    });
+    list.addEventListener('change', e => {
+      if (e.target.classList.contains('rename')) renameOutline(+e.target.dataset.oi, e.target.value);
+      else if (e.target.classList.contains('ocolor')) {
+        const o = state.outlines[+e.target.dataset.oi];
+        if (o) { o.color = e.target.value; save(true); }
+      }
+    });
+    list.addEventListener('keydown', e => {
+      if (e.target.classList.contains('rename') && e.key === 'Enter') e.target.blur();
+    });
+  }
+  const addBtn = document.getElementById(addBtnId);
+  if (addBtn) addBtn.onclick = addOutline;
+}
+bindOutlineList('outlineList', 'addOutline');
+bindOutlineList('outlineListLocked', 'addOutlineLocked');
+
+/* ============ Add / delete / clear corners ============ */
+document.getElementById('addCorner').onclick = () => {
+  pushHistory();
+  const v = state.verts;
+  if (v.length === 0) { v.push({x:0,y:0}); }
+  else if (v.length === 1) { v.push({x:300,y:0}); }
+  else {
+    // insert a new vertex after the selected one (or at end), offset so it's visible
+    const at = state.selVert!=null ? state.selVert : v.length-1;
+    const a = v[at], b = v[(at+1)%v.length];
+    v.splice(at+1, 0, { x:(a.x+b.x)/2 + 60, y:(a.y+b.y)/2 + 60 });
+    state.selVert = at+1;
+  }
+  refresh();
+};
+document.getElementById('delCorner').onclick = () => {
+  if (state.selVert==null || state.verts.length<=1) return;
+  pushHistory();
+  state.verts.splice(state.selVert,1);
+  state.selVert = null;
+  refresh();
+};
+document.getElementById('clearOutline').onclick = () => {
+  if (!state.verts.length) return;
+  pushHistory();
+  state.verts = []; state.selVert = null; state.selEdge = null; refresh();
+};
+document.getElementById('presetRect').onclick = () => {
+  pushHistory();
+  state.verts = [ {x:0,y:0},{x:1000,y:0},{x:1000,y:700},{x:0,y:700} ];
+  state.selVert = null; refresh(); fitToView();
+};
+
+/* ============ Object rendering ============ */
+function renderObjects() {
+  L_OBJECTS.innerHTML = '';
+  const inv = 1 / view.scale;
+  const interactive = objectsInteractive();
+  // List order = z-order with index 0 = front. SVG draws later elements on top,
+  // so render the array in reverse (index 0 drawn last = on top).
+  const order = state.objects.map((_,i)=>i).reverse();
+  for (const idx of order) {
+    const o = state.objects[idx];
+    const sel = interactive && o.id === state.selObj;
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('transform', `translate(${o.x} ${o.y}) rotate(${o.rot})`);
+
+    let shapeEl;
+    if (o.shape === 'circle') {
+      shapeEl = `<ellipse class="obj-shape ${o.locked?'locked':''}" data-oid="${o.id}" cx="0" cy="0" rx="${o.w/2}" ry="${o.h/2}"
+                  fill="${o.color}" fill-opacity="0.92" stroke="${o.color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+    } else {
+      shapeEl = `<rect class="obj-shape ${o.locked?'locked':''}" data-oid="${o.id}" x="${-o.w/2}" y="${-o.h/2}" width="${o.w}" height="${o.h}"
+                  fill="${o.color}" fill-opacity="0.92" stroke="${o.color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+    }
+    let inner = shapeEl;
+
+    // name + dimensions label (counter-scaled, centred)
+    const dimText = o.shape === 'circle'
+      ? `⌀ ${fmtLen(o.w)}`
+      : `${fmtLen(o.w)} × ${fmtLen(o.h)}`;
+    const lockMark = o.locked ? '🔒 ' : '';
+    inner += `<g transform="scale(${inv})">
+        <text class="obj-label" text-anchor="middle" y="-6">${lockMark}${escapeHtml(o.name)}</text>
+        <text class="obj-dim" text-anchor="middle" y="11">${dimText}</text>
+      </g>`;
+
+    // selection box + handles (only for an unlocked, selected object)
+    if (sel && !o.locked) {
+      const hw = o.w/2, hh = o.h/2;
+      inner += `<rect class="obj-sel-box" x="${-hw}" y="${-hh}" width="${o.w}" height="${o.h}" stroke-width="${1.5*inv}"/>`;
+      const hs = 7 * inv;
+      const corners = [[-hw,-hh,'nw'],[hw,-hh,'ne'],[hw,hh,'se'],[-hw,hh,'sw']];
+      for (const [hx,hy,c] of corners)
+        inner += `<rect class="handle" data-oid="${o.id}" data-handle="${c}" x="${hx-hs}" y="${hy-hs}" width="${hs*2}" height="${hs*2}"/>`;
+      // rotation handle above top edge
+      const ry = -hh - 26*inv;
+      inner += `<line x1="0" y1="${-hh}" x2="0" y2="${ry}" stroke="var(--accent)" stroke-width="${1.5*inv}"/>`;
+      inner += `<circle class="handle rot" data-oid="${o.id}" data-handle="rot" cx="0" cy="${ry}" r="${hs}"/>`;
+    }
+    g.innerHTML = inner;
+    L_OBJECTS.appendChild(g);
+  }
+  // distance lines for the selected object (also shown live while dragging)
+  renderDistanceLines();
+}
+
+// Four dashed lines from the selected object's CENTER to the walls of the
+// outline it sits inside (up/down/left/right), labelled. Shown when an object
+// is selected in objects mode; updates live because renderObjects runs each
+// drag frame. Hidden if the object's center isn't inside any outline.
+function renderDistanceLines() {
+  if (!objectsInteractive() || state.selObj == null) return;
+  const o = state.objects.find(x => x.id === state.selObj);
+  if (!o) return;
+  // use the group's bounding-box center when the object is grouped
+  const members = groupMembers(o);
+  const c = members.length > 1 ? groupCenter(members) : { x:o.x, y:o.y };
+  const oi = outlineContaining(c.x, c.y);
+  if (oi < 0) return; // not inside any outline -> no lines
+  const verts = state.outlines[oi].verts;
+  const col = '#e8e6df'; // neutral light grey so it reads on any outline colour
+  const inv = 1 / view.scale;
+  const dirs = [ [0,-1], [0,1], [-1,0], [1,0] ]; // up, down, left, right
+
+  let html = '';
+  for (const [dx, dy] of dirs) {
+    const dist = rayToPolygon(c.x, c.y, dx, dy, verts);
+    if (dist == null || dist < 1) continue;
+    const ex = c.x + dx * dist, ey = c.y + dy * dist;
+    html += `<line x1="${c.x}" y1="${c.y}" x2="${ex}" y2="${ey}" stroke="${col}" stroke-width="2" stroke-dasharray="7 4" vector-effect="non-scaling-stroke" opacity="0.95"/>`;
+    html += `<circle cx="${ex}" cy="${ey}" r="${3.5*inv}" fill="${col}"/>`;
+    const lx0 = c.x + dx * dist * 0.78, ly0 = c.y + dy * dist * 0.78;
+    const off = 15 * inv;
+    const lx = lx0 + (dy !== 0 ? off : 0), ly = ly0 + (dx !== 0 ? -off : 0);
+    html += `<g transform="translate(${lx} ${ly}) scale(${inv})"><rect class="dist-label-bg" x="-26" y="-10" width="52" height="20" rx="5"/><text class="dist-label" text-anchor="middle" dominant-baseline="middle">${fmtLen(dist)}</text></g>`;
+  }
+  // append LAST so the lines + labels sit on top of all objects (#6)
+  L_OBJECTS.insertAdjacentHTML('beforeend', `<g class="dist-lines">${html}</g>`);
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ============ Object panel ============ */
+const objListEl = document.getElementById('objList');
+let pendingColor = PALETTE[0];
+let pendingShape = 'rect';
+
+function buildSwatches() {
+  const box = document.getElementById('objColors');
+  box.innerHTML = '';
+  PALETTE.forEach(c => {
+    const s = document.createElement('div');
+    s.className = 'swatch' + (c===pendingColor?' sel':'');
+    s.style.background = c; s.dataset.color = c;
+    box.appendChild(s);
+  });
+}
+document.getElementById('objColors').addEventListener('click', e => {
+  if (!e.target.dataset.color) return;
+  pendingColor = e.target.dataset.color; buildSwatches();
+});
+document.getElementById('objShape').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  pendingShape = b.dataset.shape;
+  [...document.getElementById('objShape').children].forEach(x => x.classList.toggle('active', x===b));
+  document.getElementById('dimsRect').style.display   = pendingShape==='rect'   ? 'flex' : 'none';
+  document.getElementById('dimsSquare').style.display = pendingShape==='square' ? 'flex' : 'none';
+  document.getElementById('dimsCircle').style.display = pendingShape==='circle' ? 'flex' : 'none';
+});
+
+document.getElementById('createObj').onclick = () => {
+  const name = (document.getElementById('objName').value || '').trim() || defaultName(pendingShape);
+  let w, h, shape;
+  if (pendingShape === 'circle') {
+    const d = fromUnit(parseFloat(document.getElementById('objD').value)||0);
+    w = h = Math.max(1, d); shape = 'circle';
+  } else if (pendingShape === 'square') {
+    const s = fromUnit(parseFloat(document.getElementById('objS').value)||0);
+    w = h = Math.max(1, s); shape = 'rect';
+  } else {
+    w = Math.max(1, fromUnit(parseFloat(document.getElementById('objW').value)||0));
+    h = Math.max(1, fromUnit(parseFloat(document.getElementById('objL').value)||0));
+    shape = 'rect';
+  }
+  // place at centre of current view
+  const r = SVG.getBoundingClientRect();
+  const c = screenToWorld(r.left + r.width/2, r.top + r.height/2);
+  const o = { id: nextId++, name, shape, w, h, x: Math.round(c.x), y: Math.round(c.y), rot: 0, color: pendingColor, locked: false };
+  pushHistory();
+  state.objects.push(o);
+  state.selObj = o.id;
+  document.getElementById('objName').value = '';
+  refreshObjects(true);
+};
+function defaultName(shape){ return shape==='circle'?'Circle':shape==='square'?'Square':'Rectangle'; }
+
+function renderObjList() {
+  objListEl.innerHTML = '';
+  if (!state.objects.length) { objListEl.innerHTML = '<p class="hint" style="margin:8px 0 0">No objects yet.</p>'; return; }
+  for (const o of state.objects) {
+    const item = document.createElement('div');
+    // an object counts as selected if it's the selObj OR shares its group
+    const selObj = state.objects.find(x=>x.id===state.selObj);
+    const inSelGroup = selObj && selObj.group != null && o.group === selObj.group;
+    item.className = 'obj-item' + ((o.id===state.selObj || inSelGroup) ? ' sel' : '');
+    item.dataset.oid = o.id;
+    item.draggable = true;
+    const dims = o.shape==='circle' ? `⌀${fmtLen(o.w)}` : `${fmtLen(o.w)}×${fmtLen(o.h)}`;
+    const checked = state.checkedObjs.includes(o.id) ? 'checked' : '';
+    const groupBadge = o.group != null ? `<span class="gbadge" title="Group ${o.group}" style="background:${groupColor(o.group)}">G${o.group}</span>` : '';
+    item.innerHTML =
+      `<input type="checkbox" class="ocheck" data-oid="${o.id}" ${checked}>
+       <span class="grip" title="Drag to reorder (top = front)">⋮⋮</span>
+       <span class="dot" style="background:${o.color}"></span>
+       <span class="nm">${escapeHtml(o.name)}</span>
+       ${groupBadge}
+       <span class="sz">${dims}</span>
+       <button class="ib exp" data-act="expand" title="Edit details">${(o.id===state.selObj && objEditorOpen)?'▾':'▸'}</button>
+       <button class="ib dup" data-act="dup" title="Duplicate">⧉</button>
+       <button class="ib lk" data-act="lock" title="Lock/unlock">${o.locked?'🔒':'🔓'}</button>
+       <button class="ib del" data-act="del" title="Delete">🗑</button>`;
+    objListEl.appendChild(item);
+
+    // full inline editor under the selected object (only when expanded)
+    if (o.id === state.selObj && objEditorOpen) {
+      const ed = document.createElement('div');
+      ed.className = 'obj-edit';
+      if (o.locked) {
+        ed.innerHTML = `<p class="hint" style="margin:2px 0 0">🔒 Locked. Unlock to edit name, colour, size or position.</p>` + distanceInfoHtml(o);
+      } else {
+        const sizeFields = o.shape === 'circle'
+          ? `<div><label>Diameter</label><input type="number" min="1" step="0.01" data-oid="${o.id}" data-edit="d" value="${+toUnit(o.w).toFixed(2)}"><span class="u">${state.unit}</span></div>`
+          : `<div><label>Width</label><input type="number" min="1" step="0.01" data-oid="${o.id}" data-edit="w" value="${+toUnit(o.w).toFixed(2)}"><span class="u">${state.unit}</span></div>
+             <div><label>Length</label><input type="number" min="1" step="0.01" data-oid="${o.id}" data-edit="h" value="${+toUnit(o.h).toFixed(2)}"><span class="u">${state.unit}</span></div>`;
+        ed.innerHTML =
+          `<label>Name</label>
+           <input type="text" class="oedit-name" data-oid="${o.id}" value="${escapeAttr(o.name)}">
+           <label>Colour</label>
+           <div class="swatches oedit-colors" data-oid="${o.id}">${PALETTE.map(c=>`<div class="swatch ${c===o.color?'sel':''}" data-color="${c}" style="background:${c}"></div>`).join('')}</div>
+           <label>Size</label>
+           <div class="dims">${sizeFields}</div>` +
+          positionByDistanceHtml(o) +
+          distanceInfoHtml(o);
+      }
+      objListEl.appendChild(ed);
+    }
+  }
+}
+
+// Inputs to position the object by its CENTER distance to each wall (#2).
+function positionByDistanceHtml(o) {
+  const oi = outlineContaining(o.x, o.y);
+  if (oi < 0) return `<label>Position</label><p class="hint" style="margin:0">Move the object inside an outline to set distances.</p>`;
+  const verts = state.outlines[oi].verts;
+  const up = rayToPolygon(o.x,o.y,0,-1,verts), down = rayToPolygon(o.x,o.y,0,1,verts);
+  const left = rayToPolygon(o.x,o.y,-1,0,verts), right = rayToPolygon(o.x,o.y,1,0,verts);
+  const f = (v)=> v==null?'':(+toUnit(v).toFixed(2));
+  return `<label>Position — distance from walls (center)</label>
+    <div class="dims">
+      <div><label>← left</label><input type="number" min="0" step="0.01" data-oid="${o.id}" data-pos="left" value="${f(left)}"><span class="u">${state.unit}</span></div>
+      <div><label>right →</label><input type="number" min="0" step="0.01" data-oid="${o.id}" data-pos="right" value="${f(right)}"><span class="u">${state.unit}</span></div>
+    </div>
+    <div class="dims">
+      <div><label>↑ up</label><input type="number" min="0" step="0.01" data-oid="${o.id}" data-pos="up" value="${f(up)}"><span class="u">${state.unit}</span></div>
+      <div><label>down ↓</label><input type="number" min="0" step="0.01" data-oid="${o.id}" data-pos="down" value="${f(down)}"><span class="u">${state.unit}</span></div>
+    </div>`;
+}
+// Read-only summary of the four wall distances (#7).
+function distanceInfoHtml(o) {
+  const oi = outlineContaining(o.x, o.y);
+  if (oi < 0) return `<p class="hint" style="margin:8px 0 0">Not inside any outline — no distances.</p>`;
+  const verts = state.outlines[oi].verts;
+  const up = rayToPolygon(o.x,o.y,0,-1,verts), down = rayToPolygon(o.x,o.y,0,1,verts);
+  const left = rayToPolygon(o.x,o.y,-1,0,verts), right = rayToPolygon(o.x,o.y,1,0,verts);
+  const f = (v)=> v==null?'—':fmtLen(v);
+  return `<p class="dist-info">In <b>${escapeHtml(state.outlines[oi].name)}</b> · ↑ ${f(up)} · ↓ ${f(down)} · ← ${f(left)} · → ${f(right)}</p>`;
+}
+
+// Set object position so its center is `distCm` from a wall in the given dir.
+function setPositionByDistance(o, dir, distCm) {
+  const oi = outlineContaining(o.x, o.y);
+  if (oi < 0) return;
+  const verts = state.outlines[oi].verts;
+  const dirs = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] };
+  const [dx,dy] = dirs[dir];
+  const cur = rayToPolygon(o.x, o.y, dx, dy, verts);
+  if (cur == null) return;
+  // To make the distance toward this wall equal distCm, move the center TOWARD
+  // the wall (in +[dx,dy]) by (cur - distCm).
+  const delta = cur - distCm;
+  o.x += dx * delta; o.y += dy * delta;
+  if (!pointInPolygon(o.x, o.y, verts)) { o.x -= dx*delta; o.y -= dy*delta; }
+}
+
+// Typing exact dimensions / position / name for the selected object.
+objListEl.addEventListener('change', e => {
+  const t = e.target;
+  const o = state.objects.find(x=>x.id===+t.dataset.oid); if (!o || o.locked) return;
+  if (t.dataset.edit !== undefined) {
+    const cm = Math.max(1, fromUnit(parseFloat(t.value)||0));
+    pushHistory();
+    if (t.dataset.edit === 'd') { o.w = cm; o.h = cm; }
+    else if (t.dataset.edit === 'w') { o.w = cm; }
+    else if (t.dataset.edit === 'h') { o.h = cm; }
+    refreshObjects(true);
+  } else if (t.dataset.pos !== undefined) {
+    const cm = Math.max(0, fromUnit(parseFloat(t.value)||0));
+    pushHistory();
+    setPositionByDistance(o, t.dataset.pos, cm);
+    refreshObjects(true);
+  } else if (t.classList.contains('oedit-name')) {
+    pushHistory();
+    o.name = t.value.trim() || o.name;
+    refreshObjects(true);
+  }
+});
+// Colour swatch clicks in the inline editor.
+objListEl.addEventListener('click', e => {
+  const sw = e.target.closest('.oedit-colors .swatch');
+  if (sw) {
+    const o = state.objects.find(x=>x.id===+sw.parentElement.dataset.oid);
+    if (o && !o.locked) { pushHistory(); o.color = sw.dataset.color; refreshObjects(true); }
+    return;
+  }
+  if (e.target.closest('.obj-edit')) return; // other clicks in editor: ignore
+  if (e.target.classList.contains('ocheck')) return; // checkbox handled separately
+  const item = e.target.closest('.obj-item'); if (!item) return;
+  const id = +item.dataset.oid;
+  const o = state.objects.find(x=>x.id===id);
+  const act = e.target.dataset.act;
+  if (act === 'del') { pushHistory(); state.objects = state.objects.filter(x=>x.id!==id); if (state.selObj===id) state.selObj=null; }
+  else if (act === 'lock') { pushHistory(); o.locked = !o.locked; }
+  else if (act === 'dup') {
+    pushHistory();
+    const copy = { ...o, id: nextId++, x: o.x + 40, y: o.y + 40, locked: false, name: o.name };
+    state.objects.unshift(copy); // new copy goes to front
+    state.selObj = copy.id; objEditorOpen = false;
+  }
+  else if (act === 'expand') {
+    // toggle editor for this row; selecting it if needed
+    if (state.selObj === id) objEditorOpen = !objEditorOpen;
+    else { state.selObj = id; objEditorOpen = true; }
+  }
+  else { // plain row click: select, keep editor collapsed for easy reordering
+    if (state.selObj !== id) { state.selObj = id; objEditorOpen = false; }
+  }
+  refreshObjects(act==='del'||act==='lock'||act==='dup');
+});
+
+/* drag-to-reorder object list rows (#5) — top = front */
+let dragRowId = null;
+objListEl.addEventListener('dragstart', e => {
+  const item = e.target.closest('.obj-item'); if (!item) return;
+  dragRowId = +item.dataset.oid;
+  e.dataTransfer.effectAllowed = 'move';
+});
+objListEl.addEventListener('dragover', e => {
+  e.preventDefault();
+  const item = e.target.closest('.obj-item');
+  if (item) item.classList.add('drop-target');
+});
+objListEl.addEventListener('dragleave', e => {
+  const item = e.target.closest('.obj-item');
+  if (item) item.classList.remove('drop-target');
+});
+objListEl.addEventListener('drop', e => {
+  e.preventDefault();
+  const item = e.target.closest('.obj-item'); if (!item || dragRowId==null) return;
+  const targetId = +item.dataset.oid;
+  if (targetId === dragRowId) return;
+  const from = state.objects.findIndex(o=>o.id===dragRowId);
+  const to = state.objects.findIndex(o=>o.id===targetId);
+  if (from<0 || to<0) return;
+  pushHistory();
+  const [moved] = state.objects.splice(from,1);
+  state.objects.splice(to,0,moved);
+  dragRowId = null;
+  refreshObjects(true);
+});
+
+function refreshObjects(immediate) { renderObjects(); renderObjList(); updateGroupButtons(); save(immediate); }
+
+/* ============ Grouping UI ============ */
+// checkbox toggles
+objListEl.addEventListener('change', e => {
+  if (!e.target.classList.contains('ocheck')) return;
+  const id = +e.target.dataset.oid;
+  if (e.target.checked) { if (!state.checkedObjs.includes(id)) state.checkedObjs.push(id); }
+  else state.checkedObjs = state.checkedObjs.filter(x=>x!==id);
+  updateGroupButtons();
+});
+function updateGroupButtons() {
+  const gb = document.getElementById('groupBtn'), ub = document.getElementById('ungroupBtn');
+  if (!gb) return;
+  const checked = state.checkedObjs.map(id=>state.objects.find(o=>o.id===id)).filter(Boolean);
+  gb.disabled = checked.length < 2;
+  // ungroup enabled if any checked object is in a group
+  ub.disabled = !checked.some(o => o.group != null);
+}
+document.getElementById('groupBtn').onclick = () => {
+  const ids = state.checkedObjs.filter(id=>state.objects.find(o=>o.id===id));
+  if (ids.length < 2) return;
+  pushHistory();
+  const gid = nextId++; // unique group id
+  for (const o of state.objects) if (ids.includes(o.id)) o.group = gid;
+  state.checkedObjs = [];
+  state.selObj = ids[0];
+  refreshObjects(true);
+};
+document.getElementById('ungroupBtn').onclick = () => {
+  const checked = state.checkedObjs.map(id=>state.objects.find(o=>o.id===id)).filter(Boolean);
+  // ungroup the groups represented by any checked object
+  const groups = new Set(checked.map(o=>o.group).filter(g=>g!=null));
+  if (!groups.size) return;
+  pushHistory();
+  for (const o of state.objects) if (groups.has(o.group)) o.group = null;
+  state.checkedObjs = [];
+  refreshObjects(true);
+};
+
+/* ============ Measure tool ============ */
+const L_OVERLAY = document.getElementById('layer-overlay');
+const measureListEl = document.getElementById('measureList');
+let placing = null;       // measure being placed: { id, a, b:null }
+let snapPreview = null;    // {x,y} of current snapped cursor while placing
+
+const SNAP_PX = 16;        // snap radius in screen pixels
+function snapPoint(wx, wy) {
+  // candidate snap targets: every outline's corners + object centres
+  const targets = [];
+  for (const o of state.outlines) for (const v of o.verts) targets.push(v);
+  for (const o of state.objects) targets.push({ x: o.x, y: o.y });
+  let best = null, bestD = (SNAP_PX / view.scale);
+  for (const t of targets) {
+    const d = Math.hypot(t.x - wx, t.y - wy);
+    if (d < bestD) { bestD = d; best = t; }
+  }
+  return best ? { x: best.x, y: best.y, snapped: true } : { x: wx, y: wy, snapped: false };
+}
+
+function renderMeasures() {
+  L_OVERLAY.innerHTML = '';
+  const inv = 1 / view.scale;
+  const editable = state.mode === 'measure';
+  const draw = (m, ghost) => {
+    const a = m.a, b = m.b || snapPreview;
+    if (!a) return;
+    if (b) {
+      const cm = Math.hypot(b.x-a.x, b.y-a.y);
+      L_OVERLAY.insertAdjacentHTML('beforeend',
+        `<line class="measure-line" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" ${ghost?'stroke-dasharray="6 5"':''}/>`);
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+      const nx = cm>0 ? -(b.y-a.y)/cm : 0, ny = cm>0 ? (b.x-a.x)/cm : -1;
+      const off = 16*inv;
+      L_OVERLAY.insertAdjacentHTML('beforeend',
+        `<g transform="translate(${mx+nx*off} ${my+ny*off}) scale(${inv})"><rect class="measure-label-bg" x="-26" y="-10" width="52" height="20" rx="5"/><text class="measure-label" text-anchor="middle" dominant-baseline="middle">${fmtLen(cm)}</text></g>`);
+      const bAttr = (!ghost && editable) ? `class="measure-pt mpt" data-mid="${m.id}" data-end="b"` : `class="measure-pt"`;
+      L_OVERLAY.insertAdjacentHTML('beforeend', `<circle ${bAttr} cx="${b.x}" cy="${b.y}" r="${5*inv}"/>`);
+    }
+    const aAttr = (!ghost && editable) ? `class="measure-pt mpt" data-mid="${m.id}" data-end="a"` : `class="measure-pt"`;
+    L_OVERLAY.insertAdjacentHTML('beforeend', `<circle ${aAttr} cx="${a.x}" cy="${a.y}" r="${5*inv}"/>`);
+  };
+  for (const m of state.measures) draw(m, false);
+  if (placing) draw(placing, true);
+  if (placing && snapPreview && snapPreview.snapped) {
+    L_OVERLAY.insertAdjacentHTML('beforeend', `<circle class="snap-ring" cx="${snapPreview.x}" cy="${snapPreview.y}" r="${9*inv}"/>`);
+  }
+}
+
+function renderMeasureList() {
+  measureListEl.innerHTML = '';
+  if (!state.measures.length) { measureListEl.innerHTML = '<p class="hint" style="margin:8px 0 0">No measurements yet.</p>'; return; }
+  state.measures.forEach((m, i) => {
+    const cm = Math.hypot(m.b.x-m.a.x, m.b.y-m.a.y);
+    const item = document.createElement('div');
+    item.className = 'measure-item'; item.dataset.mid = m.id;
+    item.innerHTML = `<span class="mc"></span>
+      <input class="md-edit" type="number" min="0" step="0.01" data-mid="${m.id}" value="${+toUnit(cm).toFixed(2)}"><span class="u">${state.unit}</span>
+      <button class="ib lk" data-act="lock" title="Lock (keep)">${m.locked?'🔒':'🔓'}</button>
+      <button class="ib del" data-act="del" title="Delete">🗑</button>`;
+    measureListEl.appendChild(item);
+  });
+}
+// Edit a measurement's length: keep point A fixed, move B along the A→B line.
+measureListEl.addEventListener('change', e => {
+  if (!e.target.classList.contains('md-edit')) return;
+  const mid = +e.target.dataset.mid;
+  const m = state.measures.find(x=>x.id===mid); if (!m) return;
+  const targetCm = Math.max(0, fromUnit(parseFloat(e.target.value)||0));
+  let dx = m.b.x-m.a.x, dy = m.b.y-m.a.y;
+  let len = Math.hypot(dx,dy); if (len<0.0001){dx=1;dy=0;len=1;}
+  pushHistory();
+  m.b = { x: m.a.x + dx/len*targetCm, y: m.a.y + dy/len*targetCm };
+  renderMeasures(); renderMeasureList(); save(true);
+});
+measureListEl.addEventListener('click', e => {
+  const item = e.target.closest('.measure-item'); if (!item) return;
+  const mid = +item.dataset.mid;
+  const act = e.target.dataset.act;
+  if (act === 'del') {
+    pushHistory();
+    state.measures = state.measures.filter(m=>m.id!==mid);
+    renderMeasures(); renderMeasureList(); save(true);
+  } else if (act === 'lock') {
+    pushHistory();
+    const m = state.measures.find(x=>x.id===mid); if (m) m.locked = !m.locked;
+    renderMeasures(); renderMeasureList(); save(true);
+  }
+});
+
+document.getElementById('newMeasure').onclick = () => {
+  placing = { id: nextId++, a: null, b: null };
+  document.getElementById('measureStatus').textContent = 'Click the first point on the canvas…';
+  document.getElementById('measureStatus').style.color = 'var(--measure)';
+  SVG.classList.add('drawing');
+};
+
+/* drag existing measure endpoints (#8) */
+let measureDrag = null; // { mid, end, orig }
+SVG.addEventListener('pointerdown', (e) => {
+  if (state.mode !== 'measure') return;
+  const el = e.target;
+  if (!el.classList.contains('mpt')) return;
+  const m = state.measures.find(x=>x.id===+el.dataset.mid); if (!m) return;
+  measureDrag = { mid: m.id, end: el.dataset.end };
+  pushHistory();
+  e.stopPropagation();
+}, true);
+SVG.addEventListener('pointermove', (e) => {
+  if (!measureDrag) return;
+  const m = state.measures.find(x=>x.id===measureDrag.mid); if (!m) return;
+  const w = screenToWorld(e.clientX, e.clientY);
+  const sp = snapPoint(w.x, w.y);
+  snapPreview = sp.snapped ? sp : null;
+  m[measureDrag.end] = { x: sp.x, y: sp.y };
+  renderMeasures(); renderMeasureList();
+}, true);
+window.addEventListener('pointerup', () => {
+  if (measureDrag) { measureDrag = null; snapPreview = null; renderMeasures(); save(true); }
+});
+document.getElementById('clearMeasures').onclick = () => {
+  const removable = state.measures.filter(m => !m.locked);
+  if (!removable.length) return;
+  pushHistory();
+  state.measures = state.measures.filter(m => m.locked); // keep locked ones
+  renderMeasures(); renderMeasureList(); save(true);
+};
+
+function measureClick(wx, wy) {
+  const sp = snapPoint(wx, wy);
+  if (!placing.a) {
+    placing.a = { x: sp.x, y: sp.y };
+    document.getElementById('measureStatus').textContent = 'Click the second point…';
+  } else {
+    placing.b = { x: sp.x, y: sp.y };
+    pushHistory();
+    state.measures.push({ id: placing.id, a: placing.a, b: placing.b, locked: false });
+    placing = null; snapPreview = null;
+    document.getElementById('measureStatus').textContent = 'Measurement added. Click “New measurement” for another.';
+    document.getElementById('measureStatus').style.color = 'var(--ok)';
+    SVG.classList.remove('drawing');
+    renderMeasureList(); save(true);
+  }
+  renderMeasures();
+}
+
+/* ============ Close note ============ */
+function updateCloseNote() {
+  const el = document.getElementById('closeNote');
+  const n = state.verts.length;
+  if (n < 3) { el.textContent = 'Add at least 3 corners to form a plot.'; el.style.color = 'var(--ink-dim)'; }
+  else { el.textContent = `✓ ${n}-sided plot. Drag corners to match your fences, fine-tune lengths, then lock.`; el.style.color = 'var(--ok)'; }
+}
+
+/* ============ Master refresh ============ */
+function refresh() { renderOutlineList(); renderOutline(); renderEdgeList(); updateCloseNote(); renderObjects(); renderMeasures(); save(); }
+
+/* ============ Mode + lock/unlock ============ */
+const btnOutline = document.getElementById('btnOutline');
+const btnObjects = document.getElementById('btnObjects');
+const btnMeasure = document.getElementById('btnMeasure');
+const panel = document.getElementById('outlinePanel');
+const lockedPanel = document.getElementById('lockedPanel');
+const objectsPanel = document.getElementById('objectsPanel');
+const measurePanel = document.getElementById('measurePanel');
+function setMode(m) {
+  state.mode = m;
+  btnOutline.classList.toggle('active', m === 'outline');
+  btnObjects.classList.toggle('active', m === 'objects');
+  btnMeasure.classList.toggle('active', m === 'measure');
+  const outl = (m === 'outline');
+  panel.style.display = (outl && !state.locked) ? 'block' : 'none';
+  lockedPanel.style.display = (outl && state.locked) ? 'block' : 'none';
+  objectsPanel.style.display = (m === 'objects') ? 'block' : 'none';
+  measurePanel.style.display = (m === 'measure') ? 'block' : 'none';
+  if (m !== 'objects') state.selObj = null;
+  if (m !== 'outline') state.selVert = null;
+  if (m !== 'measure') { placing = null; snapPreview = null; }
+  SVG.classList.toggle('drawing', false);
+  if (outl && state.locked) document.getElementById('lockedSummary').textContent = outlineSummary();
+  renderOutlineList();
+  renderOutline(); renderEdgeList(); updateCloseNote(); renderObjects(); renderObjList(); renderMeasures(); renderMeasureList();
+}
+btnOutline.onclick = () => setMode(state.mode==='outline' ? 'idle' : 'outline');
+btnObjects.onclick = () => setMode(state.mode==='objects' ? 'idle' : 'objects');
+btnMeasure.onclick = () => setMode(state.mode==='measure' ? 'idle' : 'measure');
+
+function outlineSummary() {
+  const v = state.verts;
+  if (v.length < 3) return 'No valid outline.';
+  const xs=v.map(p=>p.x), ys=v.map(p=>p.y);
+  const w=Math.max(...xs)-Math.min(...xs), h=Math.max(...ys)-Math.min(...ys);
+  // shoelace area
+  let area=0; for(let i=0;i<v.length;i++){const a=v[i],b=v[(i+1)%v.length];area+=a.x*b.y-b.x*a.y;}
+  area=Math.abs(area)/2; // cm^2
+  return `${v.length} sides · bounding box ${fmtLen(w)} × ${fmtLen(h)} · area ${(area/10000).toFixed(1)} m²`;
+}
+document.getElementById('lockOutline').onclick = () => {
+  if (state.verts.length < 3) { alert('Add at least 3 corners before locking.'); return; }
+  state.locked = true; state.selVert = null;
+  document.getElementById('lockedSummary').textContent = outlineSummary();
+  setMode('outline');
+};
+document.getElementById('unlockOutline').onclick = () => { state.locked = false; setMode('outline'); };
+
+/* ============ Vertex dragging (capture phase, beats panning) ============ */
+let dragVi = null, dragMoved = false, vertDragOrig = null;
+SVG.addEventListener('pointerdown', (e) => {
+  const el = e.target;
+  if (el.classList.contains('vertex')) {
+    dragVi = +el.dataset.vi; dragMoved = false;
+    vertDragOrig = { ...state.verts[dragVi] };
+    pushHistory();
+    state.selVert = dragVi;
+    el.classList.add('dragging');
+    SVG.setPointerCapture(e.pointerId);
+    e.stopPropagation();
+    renderOutline();
+  } else if (el.classList.contains('edge-hit')) {
+    // clicking a side selects it + focuses its length box
+    state.selEdge = +el.dataset.ei;
+    renderEdgeList();
+    const inp = edgeListEl.querySelector(`input[data-ei="${state.selEdge}"]`);
+    if (inp) { inp.focus(); inp.select(); }
+    e.stopPropagation();
+  }
+}, true);
+SVG.addEventListener('pointermove', (e) => {
+  if (dragVi === null) return;
+  const w = screenToWorld(e.clientX, e.clientY);
+  state.verts[dragVi] = { x: Math.round(w.x), y: Math.round(w.y) };
+  dragMoved = true;
+  renderOutline(); renderEdgeList(); // live length updates while dragging
+}, true);
+window.addEventListener('pointerup', () => {
+  if (dragVi !== null) { dragVi = null; updateCloseNote(); save(true); }
+});
+
+/* ============ Object interaction: move / resize / rotate ============ */
+let objDrag = null; // { id, mode:'move'|'resize'|'rot', handle, start{x,y}, orig{...} }
+// Objects are interactive in 'objects' mode and in 'idle' mode (panel closed),
+// but not while editing an outline or measuring, to avoid click conflicts.
+function objectsInteractive() { return state.mode === 'objects' || state.mode === 'idle'; }
+let nudgeActive = false, nudgeTimer = null;
+
+/* ============ Groups ============ */
+// Members of the same group as object `o` (including o). If ungrouped, just [o].
+function groupMembers(o) {
+  if (!o) return [];
+  if (o.group == null) return [o];
+  return state.objects.filter(x => x.group === o.group);
+}
+// Bounding-box center of a set of objects (uses their footprint extents).
+function groupCenter(members) {
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  for (const o of members) {
+    const hw=o.w/2, hh=o.h/2;
+    minX=Math.min(minX,o.x-hw); maxX=Math.max(maxX,o.x+hw);
+    minY=Math.min(minY,o.y-hh); maxY=Math.max(maxY,o.y+hh);
+  }
+  return { x:(minX+maxX)/2, y:(minY+maxY)/2 };
+}
+function groupColor(gid) { return PALETTE[(gid|0) % PALETTE.length]; }
+
+SVG.addEventListener('pointerdown', (e) => {
+  if (!objectsInteractive()) return;
+  const el = e.target;
+  const oid = el.dataset && el.dataset.oid ? +el.dataset.oid : null;
+  if (oid === null) return;
+  const o = state.objects.find(x=>x.id===oid);
+  if (!o) return;
+
+  state.selObj = oid;
+  const w = screenToWorld(e.clientX, e.clientY);
+
+  if (el.classList.contains('handle') && !o.locked) {
+    pushHistory();
+    const handle = el.dataset.handle;
+    objDrag = { id: oid, mode: handle==='rot'?'rot':'resize', handle, start: w, orig: { ...o } };
+  } else if (el.classList.contains('obj-shape') && !o.locked) {
+    pushHistory();
+    // moving a grouped object moves all members together
+    const members = groupMembers(o);
+    objDrag = { id: oid, mode: 'move', start: w,
+      origs: members.map(m => ({ id:m.id, x:m.x, y:m.y })) };
+  } else {
+    objDrag = null; // locked or label: just select
+  }
+  e.stopPropagation();
+  renderObjects(); renderObjList();
+}, true);
+
+SVG.addEventListener('pointermove', (e) => {
+  if (!objDrag) return;
+  const o = state.objects.find(x=>x.id===objDrag.id);
+  if (!o) return;
+  const w = screenToWorld(e.clientX, e.clientY);
+  const dx = w.x - objDrag.start.x, dy = w.y - objDrag.start.y;
+
+  if (objDrag.mode === 'move') {
+    // apply the same delta to every captured member (group move)
+    for (const og of objDrag.origs) {
+      const m = state.objects.find(x=>x.id===og.id);
+      if (m) { m.x = Math.round(og.x + dx); m.y = Math.round(og.y + dy); }
+    }
+  } else if (objDrag.mode === 'rot') {
+    const ang = Math.atan2(w.y - o.y, w.x - o.x) * 180/Math.PI + 90; // handle sits above
+    o.rot = Math.round(ang);
+  } else if (objDrag.mode === 'resize') {
+    // Work in the object's local (unrotated) frame. Keep centre fixed; the
+    // dragged corner changes width/height symmetrically about the centre.
+    const rad = -o.rot * Math.PI/180;
+    const lx = dx*Math.cos(rad) - dy*Math.sin(rad);
+    const ly = dx*Math.sin(rad) + dy*Math.cos(rad);
+    const sx = objDrag.handle.includes('e') ? 1 : -1;
+    const sy = objDrag.handle.includes('s') ? 1 : -1;
+    let nw = Math.max(5, objDrag.orig.w + sx*lx*2);
+    let nh = Math.max(5, objDrag.orig.h + sy*ly*2);
+    if (o.shape === 'circle') { const m = Math.max(nw, nh); o.w = Math.round(m); o.h = Math.round(m); }
+    else { o.w = Math.round(nw); o.h = Math.round(nh); }
+  }
+  renderObjects(); renderObjList();
+}, true);
+
+window.addEventListener('pointerup', () => {
+  if (objDrag) {
+    const o = state.objects.find(x=>x.id===objDrag.id);
+    let changed = false;
+    if (objDrag.mode === 'move') {
+      changed = objDrag.origs.some(og => {
+        const m = state.objects.find(x=>x.id===og.id);
+        return m && (m.x!==og.x || m.y!==og.y);
+      });
+    } else if (objDrag.orig) {
+      const og = objDrag.orig;
+      changed = o && (o.x!==og.x || o.y!==og.y || o.w!==og.w || o.h!==og.h || o.rot!==og.rot);
+    }
+    if (!changed && undoStack.length) { undoStack.pop(); updateHistoryButtons(); } // was just a click
+    objDrag = null; save(true);
+  }
+});
+
+/* ============ Pan & zoom ============ */
+let panning = false, panStart = null, downPos = null;
+SVG.addEventListener('pointerdown', (e) => {
+  const cl = e.target.classList;
+  if (cl.contains('vertex') || cl.contains('edge-hit') || cl.contains('obj-shape') || cl.contains('handle') || cl.contains('mpt')) return;
+  downPos = { x: e.clientX, y: e.clientY };
+  panning = true; panStart = { x: e.clientX - view.x, y: e.clientY - view.y };
+  SVG.classList.add('panning'); SVG.setPointerCapture(e.pointerId);
+});
+SVG.addEventListener('pointermove', (e) => {
+  // live snap preview while placing a measurement
+  if (state.mode === 'measure' && placing) {
+    const w = screenToWorld(e.clientX, e.clientY);
+    snapPreview = snapPoint(w.x, w.y);
+    renderMeasures();
+  }
+  if (!panning) return;
+  view.x = e.clientX - panStart.x; view.y = e.clientY - panStart.y;
+  applyView(); renderAll();
+});
+SVG.addEventListener('pointerup', (e) => {
+  panning = false; SVG.classList.remove('panning');
+  // treat as a click (not a drag) if the pointer barely moved
+  if (state.mode === 'measure' && placing && downPos) {
+    const moved = Math.hypot(e.clientX-downPos.x, e.clientY-downPos.y);
+    if (moved < 5) {
+      const w = screenToWorld(e.clientX, e.clientY);
+      measureClick(w.x, w.y);
+    }
+  }
+  downPos = null;
+});
+SVG.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
+  const w = screenToWorld(e.clientX, e.clientY);
+  view.scale = Math.min(8, Math.max(0.02, view.scale*factor));
+  const r = SVG.getBoundingClientRect();
+  view.x = (e.clientX - r.left) - w.x*view.scale;
+  view.y = (e.clientY - r.top) - w.y*view.scale;
+  applyView(); renderAll();
+}, { passive: false });
+
+document.getElementById('zoomIn').onclick = () => zoomBy(1.25);
+document.getElementById('zoomOut').onclick = () => zoomBy(0.8);
+function zoomBy(f) {
+  const r = SVG.getBoundingClientRect();
+  const cx=r.width/2, cy=r.height/2;
+  const w = screenToWorld(r.left+cx, r.top+cy);
+  view.scale = Math.min(8, Math.max(0.02, view.scale*f));
+  view.x = cx - w.x*view.scale; view.y = cy - w.y*view.scale;
+  applyView(); renderAll();
+}
+
+/* ============ Fit to view ============ */
+function fitToView() {
+  const all = [];
+  for (const o of state.outlines) for (const p of o.verts) all.push(p);
+  for (const o of state.objects) all.push({x:o.x,y:o.y});
+  if (all.length < 2) { applyView(); renderAll(); return; }
+  const xs=all.map(p=>p.x), ys=all.map(p=>p.y);
+  const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+  const w=maxX-minX||100, h=maxY-minY||100;
+  const r = SVG.getBoundingClientRect();
+  const pad=90;
+  view.scale = Math.min(8, Math.max(0.02, Math.min((r.width-pad*2)/w, (r.height-pad*2)/h)));
+  view.x = r.width/2 - (minX+maxX)/2*view.scale;
+  view.y = r.height/2 - (minY+maxY)/2*view.scale;
+  applyView(); renderAll();
+}
+document.getElementById('btnFit').onclick = fitToView;
+window.addEventListener('resize', () => { applyView(); renderAll(); });
+
+/* ============ Export / Import ============ */
+document.getElementById('btnExport').onclick = () => {
+  const data = { version: SAVE_VERSION, outlines: state.outlines, activeOutline: state.activeOutline, objects: state.objects, measures: state.measures, unit: state.unit, nextId };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'garden.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+document.getElementById('btnImport').onclick = () => document.getElementById('fileImport').click();
+document.getElementById('fileImport').addEventListener('change', (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const d = JSON.parse(reader.result);
+      if (!loadFromData(d)) throw new Error('bad data');
+      state.selObj = null; state.selVert = null;
+      save(); refresh(); renderObjList(); fitToView(); setMode('idle');
+    } catch (err) {
+      alert('Could not read that file — it doesn’t look like a garden export.');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// Flush any pending save before the page goes away.
+window.addEventListener('pagehide', () => save(true));
+document.addEventListener('visibilitychange', () => { if (document.hidden) save(true); });
+
+/* ============ Undo / redo wiring ============ */
+document.getElementById('btnUndo').onclick = undo;
+document.getElementById('btnRedo').onclick = redo;
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName||'').toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return; // don't hijack typing
+  if (e.key === 'Escape' && placing) {
+    placing = null; snapPreview = null;
+    SVG.classList.remove('drawing');
+    document.getElementById('measureStatus').textContent = 'Cancelled.';
+    document.getElementById('measureStatus').style.color = 'var(--ink-dim)';
+    renderMeasures();
+    return;
+  }
+  // Arrow keys nudge the selected object 1 cm (10 cm with Shift) (#3)
+  const arrows = { ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0] };
+  if (arrows[e.key] && state.selObj != null && objectsInteractive()) {
+    const o = state.objects.find(x=>x.id===state.selObj);
+    if (o && !o.locked) {
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 1;
+      const [dx,dy] = arrows[e.key];
+      // Coalesce a burst of nudges into a single undo entry.
+      if (!nudgeActive) { pushHistory(); nudgeActive = true; }
+      clearTimeout(nudgeTimer);
+      nudgeTimer = setTimeout(() => { nudgeActive = false; }, 600);
+      for (const m of groupMembers(o)) { m.x += dx*step; m.y += dy*step; }
+      renderObjects(); renderObjList(); save();
+      return;
+    }
+  }
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (ctrl && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if ((ctrl && e.key.toLowerCase() === 'y') || (ctrl && e.shiftKey && e.key.toLowerCase() === 'z')) { e.preventDefault(); redo(); }
+});
+
+/* ============ Init ============ */
+loadFromStorage();      // restore previous session if present
+refresh();              // render everything + autosave
+renderObjList();
+renderMeasureList();
+buildSwatches();
+fitToView();
+setMode('idle');
+updateHistoryButtons();
+</script>
+</body>
+</html>
